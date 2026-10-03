@@ -4,8 +4,8 @@
 entries into a living wiki, using local LLMs only.**
 
 > [!WARNING]
-> **Hypomnemata is at a very early stage.** Nothing runs yet: this
-> repository holds the design and, soon, a first skeleton.
+> **Hypomnemata is at a very early stage.** Only one command exists so
+> far, and it does not use any model yet.
 
 *Hypomnemata* were the personal notebooks of the ancients: quotes,
 reflections and daily notes kept for oneself, the practice behind Marcus
@@ -42,6 +42,21 @@ predictable, testable, and the same every time.
   plugins.
 - **Plain files.** Your journal is a folder of Markdown files, readable in
   any editor or in Obsidian. Obsidian is not required.
+
+## Try it
+
+Requires [uv](https://docs.astral.sh/uv/).
+
+```sh
+cp config.example.toml config.local.toml   # then set your paths
+export EDITOR="codium --wait"              # any editor that waits until closed
+uv run hypomnemata journal
+```
+
+This creates an empty, dated entry with a random placeholder name
+(`2026-10-03-curious-otter.md`) in `sources/inbox/` of your second brain,
+and opens it in your editor with the cursor ready below the heading. Every action is recorded in
+`var/log/audit.jsonl` (never versioned), so each run can be reviewed.
 
 ## Planned design
 

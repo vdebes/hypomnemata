@@ -1,0 +1,9 @@
+# Copy this file to config.local.toml (never versioned) and adapt it.
+
+# Absolute path to your second brain. Journal entries are created in
+# its sources/inbox/ folder, which must already exist.
+second_brain = "/path/to/your/second-brain"
+
+# Your name as it appears in the frontmatter of what you write
+# (generated.by: human:<author>). Lowercase letters, digits and dashes.
+author = "your-name"

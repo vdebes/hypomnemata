@@ -1,0 +1,45 @@
+[project]
+name = "hypomnemata"
+version = "0.1.0.dev0"
+description = "Your private hypomnemata: a terminal harness that turns raw journal entries into a living wiki, using local LLMs only."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "AGPL-3.0-or-later"
+dependencies = [
+    "pydantic>=2.11",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+hypomnemata = "hypomnemata.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.7,<0.12"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.18",
+    "pytest>=8.4",
+    "pytest-cov>=7.0",
+    "ruff>=0.13",
+    "types-pyyaml>=6.0",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.mypy]
+files = ["src", "tests"]
+strict = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["src"]
+relative_files = true
