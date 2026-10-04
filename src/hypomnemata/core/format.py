@@ -13,7 +13,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from hypomnemata.core.audit import AuditLog
-from hypomnemata.core.journal import split
+from hypomnemata.core.journal import JournalError, read_entry, split
 from hypomnemata.core.llm import LLM
 
 SYSTEM = """\
@@ -76,6 +76,12 @@ def format_entry(path: Path, llm: LLM, audit: AuditLog) -> bool:
 
 
 def latest_entry(inbox: Path) -> Path | None:
-    """The most recently modified Markdown file of the inbox."""
-    entries = sorted(inbox.glob("*.md"), key=lambda path: path.stat().st_mtime_ns)
-    return entries[-1] if entries else None
+    """The most recently modified journal entry of the inbox (other notes are ignored)."""
+    entries = []
+    for path in inbox.glob("*.md"):
+        try:
+            read_entry(path)
+        except JournalError:
+            continue
+        entries.append(path)
+    return max(entries, key=lambda path: path.stat().st_mtime_ns, default=None)

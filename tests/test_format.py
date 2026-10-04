@@ -8,7 +8,10 @@ from hypomnemata.core.audit import AuditLog
 from hypomnemata.core.format import FormatError, format_entry, latest_entry, words
 from hypomnemata.core.llm import LLM
 
-HEADER = "---\ntype: Journal Entry\ntags: [journal]\n---\n\n# Quiet Otter\n\n"
+HEADER = (
+    "---\ntype: Journal Entry\ntags: [journal]\n"
+    "generated: {by: 'human:a', at: '2026-10-04'}\n---\n\n# Quiet Otter\n\n"
+)
 DICTATED = "est-ce que ça marche je crois que oui l'heure système est bonne"
 FORMATTED = "Est-ce que ça marche ?\n\nJe crois que oui. L'heure système est bonne."
 
@@ -71,12 +74,16 @@ def test_aborts_if_the_file_changed_meanwhile(tmp_path: Path, audit: AuditLog) -
     assert path.read_text().endswith("encore un mot\n")
 
 
-def test_latest_entry(tmp_path: Path) -> None:
-    assert latest_entry(tmp_path) is None
-    old, new = tmp_path / "a.md", tmp_path / "b.md"
-    old.write_text("a")
-    new.write_text("b")
+def test_latest_entry_ignores_other_notes(tmp_path: Path) -> None:
     import os
 
+    assert latest_entry(tmp_path) is None
+    old = tmp_path / "2026-10-04-a.md"
+    old.write_text(f"{HEADER}A\n", encoding="utf-8")
+    new = tmp_path / "2026-10-04-b.md"
+    new.write_text(f"{HEADER}B\n", encoding="utf-8")
+    note = tmp_path / "2026-10-04-compte-rendu.md"
+    note.write_text("---\ntype: Decision Log\n---\n\nNote\n", encoding="utf-8")
     os.utime(old, ns=(1, 1))
+
     assert latest_entry(tmp_path) == new
