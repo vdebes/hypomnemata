@@ -2,8 +2,10 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import fake_chat
 
 from hypomnemata import cli
+from hypomnemata.core.audit import AuditLog
 from hypomnemata.core.llm import LLM
 
 
@@ -198,3 +200,32 @@ def test_triage_records_the_decision_even_when_cancelled(
     run(config_file, tmp_path, scripted("o", "", "test", "n"), llm)
 
     assert events(tmp_path / "log")[-2:] == ["triage.decision", "triage.cancelled"]
+
+
+def test_format_command_formats_the_latest_entry(
+    config_file: Path, second_brain: Path, tmp_path: Path, audit: object
+) -> None:
+    path = write_entry(second_brain, "2026-10-04-quiet-otter.md", "ça marche je crois")
+    llm = LLM("fake:1b", AuditLog(tmp_path / "log"), fake_chat({"text": "Ça marche, je crois."}))
+
+    assert cli.format_command(config_file, tmp_path / "m.toml", tmp_path / "log", None, llm) == 0
+    assert path.read_text(encoding="utf-8").endswith("\n\nÇa marche, je crois.\n")
+
+
+def test_format_command_reports_a_rejection(
+    config_file: Path, second_brain: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = write_entry(second_brain, "2026-10-04-quiet-otter.md", "ça marche")
+    llm = LLM("fake:1b", AuditLog(tmp_path / "log"), fake_chat({"text": "Ça fonctionne."}))
+
+    assert cli.format_command(config_file, tmp_path / "m.toml", tmp_path / "log", path, llm) == 1
+    assert "rejetée" in capsys.readouterr().err
+
+
+def test_format_command_without_entry_or_models(
+    config_file: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.format_command(config_file, tmp_path / "m.toml", tmp_path / "log") == 1
+    assert "models.example.toml" in capsys.readouterr().err
+    llm = LLM("fake:1b", AuditLog(tmp_path / "log"), fake_chat({"text": ""}))
+    assert cli.format_command(config_file, tmp_path / "m.toml", tmp_path / "log", None, llm) == 1

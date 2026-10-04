@@ -53,12 +53,17 @@ cp config.example.toml config.local.toml   # then set your paths
 cp models.example.toml models.local.toml   # then pick your local models
 export EDITOR="codium --wait"              # any editor that waits until closed
 uv run hypomnemata journal                 # write or dictate an entry
+uv run hypomnemata format                  # punctuate and paragraph it
 uv run hypomnemata triage                  # file it
 ```
 
 `journal` creates an empty, dated entry with a random placeholder name
 (`2026-10-03-curious-otter.md`) in `sources/inbox/` of your second brain,
 and opens it in your editor with the cursor ready below the heading.
+
+`format` punctuates and paragraphs the latest entry (save it first). A
+small model proposes the formatting; the code checks that every word is
+unchanged, in the same order, and rejects the proposal otherwise.
 
 `triage` walks through the journal entries in the inbox. For each one, a
 small local model proposes a title and tags; you accept them with Enter

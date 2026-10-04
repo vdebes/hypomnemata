@@ -14,6 +14,7 @@ from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
 
+from hypomnemata.core import format as core_format
 from hypomnemata.core import triage as core_triage
 from hypomnemata.core.audit import AuditLog
 from hypomnemata.core.config import Config, ConfigError, load_config, load_models
@@ -168,6 +169,35 @@ def triage(
     return 0
 
 
+def format_command(
+    config_path: Path,
+    models_path: Path,
+    log_dir: Path,
+    target: Path | None = None,
+    llm: LLM | None = None,
+) -> int:
+    audit = AuditLog(log_dir)
+    try:
+        config = load_config(config_path)
+        if llm is None:
+            llm = LLM(load_models(models_path).resolve("small"), audit)
+    except ConfigError as error:
+        print(error, file=sys.stderr)
+        return 1
+    path = target or core_format.latest_entry(config.inbox)
+    if path is None or not path.is_file():
+        print("Aucune entrée à mettre en forme.", file=sys.stderr)
+        return 1
+    print(f"Mise en forme de {path.name} ({llm.model})…", flush=True)
+    try:
+        changed = core_format.format_entry(path, llm, audit)
+    except (core_format.FormatError, LLMError) as error:
+        print(error, file=sys.stderr)
+        return 1
+    print("Fait : ton éditeur recharge le fichier." if changed else "Entrée vide : rien à faire.")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="hypomnemata")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -175,9 +205,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     commands.add_parser(
         "triage", help="classe les entrées de journal de l'inbox (titre, tags, commit)"
     )
+    format_parser = commands.add_parser(
+        "format",
+        help="ponctue et découpe en paragraphes une entrée dictée (la plus récente par défaut)",
+    )
+    format_parser.add_argument("entry", nargs="?", type=Path, help="fichier de l'entrée")
     args = parser.parse_args(argv)
     if args.command == "triage":
         return triage(CONFIG_PATH, MODELS_PATH, LOG_DIR)
+    if args.command == "format":
+        return format_command(CONFIG_PATH, MODELS_PATH, LOG_DIR, args.entry)
     return journal(CONFIG_PATH, LOG_DIR)
 
 
