@@ -1,6 +1,7 @@
 import json
 import random
 import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from hypomnemata.core.journal import (
     body_length,
     create_entry,
     random_slug,
+    read_entry,
 )
 
 NOW = datetime(2026, 10, 3, 18, 5)
@@ -78,7 +80,7 @@ def test_records_creation_in_audit_log(config: Config, audit: AuditLog) -> None:
 
 
 def test_missing_inbox_is_an_error(config: Config, audit: AuditLog) -> None:
-    config.inbox.rmdir()
+    shutil.rmtree(config.inbox)
     with pytest.raises(JournalError, match="inbox"):
         create_entry(config, audit, NOW)
 
@@ -93,3 +95,25 @@ def test_body_length_without_frontmatter_nor_heading(tmp_path: Path) -> None:
     path = tmp_path / "plain.md"
     path.write_text("Juste du texte.\n", encoding="utf-8")
     assert body_length(path) == len("Juste du texte.")
+
+
+@pytest.mark.parametrize(
+    ("header", "message"),
+    [
+        ("type: Decision Log\ntags: [projets]", "type Decision Log, pas une entrée de journal"),
+        ("- a list", "type None"),
+        ("type: [unclosed", "YAML illisible"),
+        (
+            "type: Journal Entry\ntags: [projets]\ngenerated: {by: 'human:a', at: '2026-10-04'}",
+            "tags : Value error, le premier tag doit être journal",
+        ),
+    ],
+)
+def test_read_entry_explains_briefly_why_a_file_is_not_an_entry(
+    tmp_path: Path, header: str, message: str
+) -> None:
+    path = tmp_path / "note.md"
+    path.write_text(f"---\n{header}\n---\n\nTexte\n", encoding="utf-8")
+    with pytest.raises(JournalError, match=re.escape(message)) as error:
+        read_entry(path)
+    assert "errors.pydantic.dev" not in str(error.value)

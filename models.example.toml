@@ -1,0 +1,10 @@
+# Copy this file to models.local.toml (never versioned) and adapt it.
+#
+# Each class maps to a model served by your local Ollama. Classes go by
+# total parameter count: small (up to ~8B), medium (~8-40B), large (>~40B).
+# Leave out the classes your machine cannot run: a command needing a
+# missing class uses the next bigger one you have, or refuses clearly.
+
+small = "qwen3:4b"
+# medium = "qwen3:14b"
+# large = "qwen3:32b"

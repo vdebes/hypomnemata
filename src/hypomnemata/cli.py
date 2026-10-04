@@ -10,18 +10,24 @@ import shlex
 import subprocess
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
 
+from hypomnemata.core import triage as core_triage
 from hypomnemata.core.audit import AuditLog
-from hypomnemata.core.config import ConfigError, load_config
-from hypomnemata.core.journal import JournalError, body_length, create_entry
+from hypomnemata.core.config import Config, ConfigError, load_config, load_models
+from hypomnemata.core.journal import Entry, JournalError, body_length, create_entry
+from hypomnemata.core.llm import LLM, LLMError
 
 # src/hypomnemata/cli.py -> repository root. Config and logs live there for now.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = PROJECT_ROOT / "config.local.toml"
+MODELS_PATH = PROJECT_ROOT / "models.local.toml"
 LOG_DIR = PROJECT_ROOT / "var" / "log"
+PREVIEW_CHARS = 300
+
+Ask = Callable[[str], str]
 
 
 def editor_command(editor: str, path: Path, line: int) -> list[str]:
@@ -71,11 +77,107 @@ def journal(config_path: Path, log_dir: Path) -> int:
     return 0
 
 
+def ask_tags(ask: Ask, default: list[str]) -> list[str]:
+    shown = ", ".join(tag for tag in default if tag != "journal")
+    while True:
+        answer = ask(f"Tags [{shown}] : ").strip()
+        try:
+            return core_triage.normalize_tags(answer.replace(",", " ").split() or default)
+        except core_triage.TriageError as error:
+            print(error)
+
+
+def triage_one(config: Config, entry: Entry, llm: LLM | None, audit: AuditLog, ask: Ask) -> bool:
+    """Walk one entry through the triage. Returns False when the user wants to stop."""
+    print(f"\n── {entry.path.name} ({len(entry.body)} caractères)")
+    if not entry.body:
+        print("Entrée vide : rien à classer.")
+        return True
+    preview = entry.body[:PREVIEW_CHARS]
+    print(preview + ("…" if len(entry.body) > PREVIEW_CHARS else ""))
+    choice = ask("Classer cette entrée ? [o]ui / [n]on / [q]uitter : ").strip().lower()
+    if choice == "q":
+        return False
+    if choice != "o":
+        audit.record("triage.skipped", path=entry.path)
+        return True
+
+    proposal = None
+    if llm:
+        print(f"Proposition du modèle ({llm.model})…", flush=True)
+        try:
+            proposal = core_triage.propose(entry, llm)
+        except LLMError as error:
+            print(f"{error}\nSaisis le titre toi-même.")
+
+    title = ""
+    while not title:
+        default = proposal.title if proposal else ""
+        title = ask(f"Titre [{default}] : " if default else "Titre : ").strip() or default
+    tags = ask_tags(ask, proposal.tags if proposal else ["personnel"])
+    core_triage.record_decision(audit, entry, proposal, title, tags)
+
+    try:
+        stem = core_triage.destination(entry, title)
+    except core_triage.TriageError as error:
+        print(error)
+        return True
+    print(f"→ sources/journal/{stem}.md  ·  tags : {', '.join(tags)}")
+    if ask("Classer et commiter ? [o/N] : ").strip().lower() != "o":
+        audit.record("triage.cancelled", path=entry.path)
+        return True
+    try:
+        path, commit = core_triage.file_entry(config, entry, title, tags, audit)
+    except (core_triage.TriageError, JournalError) as error:
+        print(error, file=sys.stderr)
+        return True
+    print(f"Classé : {path.name} (commit {commit})")
+    return True
+
+
+def triage(
+    config_path: Path,
+    models_path: Path,
+    log_dir: Path,
+    ask: Ask = input,
+    llm: LLM | None = None,
+) -> int:
+    audit = AuditLog(log_dir)
+    try:
+        config = load_config(config_path)
+    except ConfigError as error:
+        print(error, file=sys.stderr)
+        return 1
+    entries, skipped = core_triage.pending(config)
+    for _path, reason in skipped:
+        print(f"Ignoré : {reason}")
+    if not entries:
+        print("Aucune entrée de journal à classer dans l'inbox.")
+        return 0
+    if llm is None:
+        try:
+            llm = LLM(load_models(models_path).resolve("small"), audit)
+        except ConfigError as error:
+            print(f"{error}\nPas de proposition automatique : titres saisis à la main.")
+    try:
+        for entry in entries:
+            if not triage_one(config, entry, llm, audit, ask):
+                break
+    except (EOFError, KeyboardInterrupt):
+        print()
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="hypomnemata")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("journal", help="crée une entrée de journal vide dans l'inbox")
-    parser.parse_args(argv)
+    commands.add_parser(
+        "triage", help="classe les entrées de journal de l'inbox (titre, tags, commit)"
+    )
+    args = parser.parse_args(argv)
+    if args.command == "triage":
+        return triage(CONFIG_PATH, MODELS_PATH, LOG_DIR)
     return journal(CONFIG_PATH, LOG_DIR)
 
 

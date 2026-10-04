@@ -4,8 +4,8 @@
 entries into a living wiki, using local LLMs only.**
 
 > [!WARNING]
-> **Hypomnemata is at a very early stage.** Only one command exists so
-> far, and it does not use any model yet.
+> **Hypomnemata is at a very early stage.** Two commands exist so far:
+> create a journal entry, and file it.
 
 *Hypomnemata* were the personal notebooks of the ancients: quotes,
 reflections and daily notes kept for oneself, the practice behind Marcus
@@ -45,18 +45,28 @@ predictable, testable, and the same every time.
 
 ## Try it
 
-Requires [uv](https://docs.astral.sh/uv/).
+Requires [uv](https://docs.astral.sh/uv/), and [Ollama](https://ollama.com)
+for title and tag proposals. Your second brain must be a Git repository.
 
 ```sh
 cp config.example.toml config.local.toml   # then set your paths
+cp models.example.toml models.local.toml   # then pick your local models
 export EDITOR="codium --wait"              # any editor that waits until closed
-uv run hypomnemata journal
+uv run hypomnemata journal                 # write or dictate an entry
+uv run hypomnemata triage                  # file it
 ```
 
-This creates an empty, dated entry with a random placeholder name
+`journal` creates an empty, dated entry with a random placeholder name
 (`2026-10-03-curious-otter.md`) in `sources/inbox/` of your second brain,
-and opens it in your editor with the cursor ready below the heading. Every action is recorded in
-`var/log/audit.jsonl` (never versioned), so each run can be reviewed.
+and opens it in your editor with the cursor ready below the heading.
+
+`triage` walks through the journal entries in the inbox. For each one, a
+small local model proposes a title and tags; you accept them with Enter
+or type your own. The entry is then renamed after its title, moved to
+`sources/journal/` and committed — that file only.
+
+Every action, every model call and every correction you make is recorded
+in `var/log/audit.jsonl` (never versioned), so each run can be reviewed.
 
 ## Planned design
 
