@@ -1,5 +1,8 @@
 # Hypomnemata
 
+[![CI](https://github.com/vdebes/hypomnemata/actions/workflows/ci.yml/badge.svg)](https://github.com/vdebes/hypomnemata/actions/workflows/ci.yml)
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=vdebes_hypomnemata&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=vdebes_hypomnemata)
+
 **Your private hypomnemata: a terminal harness that turns raw journal
 entries into a living wiki, using local LLMs only.**
 
