@@ -173,7 +173,7 @@ def format_command(
     config_path: Path,
     models_path: Path,
     log_dir: Path,
-    target: Path | None = None,
+    target: str | None = None,
     llm: LLM | None = None,
 ) -> int:
     audit = AuditLog(log_dir)
@@ -184,9 +184,16 @@ def format_command(
     except ConfigError as error:
         print(error, file=sys.stderr)
         return 1
-    path = target or core_format.latest_entry(config.inbox)
-    if path is None or not path.is_file():
-        print("Aucune entrée à mettre en forme.", file=sys.stderr)
+    try:
+        if target:
+            path = core_format.inbox_entry(config.inbox, target)
+        else:
+            latest = core_format.latest_entry(config.inbox)
+            if latest is None:
+                raise core_format.FormatError("Aucune entrée à mettre en forme dans l'inbox.")
+            path = latest
+    except core_format.FormatError as error:
+        print(error, file=sys.stderr)
         return 1
     print(f"Mise en forme de {path.name} ({llm.model})…", flush=True)
     try:
@@ -209,7 +216,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "format",
         help="ponctue et découpe en paragraphes une entrée dictée (la plus récente par défaut)",
     )
-    format_parser.add_argument("entry", nargs="?", type=Path, help="fichier de l'entrée")
+    format_parser.add_argument("entry", nargs="?", help="nom de l'entrée dans l'inbox")
     args = parser.parse_args(argv)
     if args.command == "triage":
         return triage(CONFIG_PATH, MODELS_PATH, LOG_DIR)

@@ -54,7 +54,6 @@ def first_difference(before: list[str], after: list[str]) -> str:
 def format_entry(path: Path, llm: LLM, audit: AuditLog) -> bool:
     """Format the body of `path` in place. Returns False when there is nothing to format."""
     text = path.read_text(encoding="utf-8")
-    mtime = path.stat().st_mtime_ns
     body = split(text)[1]
     if not body:
         return False
@@ -65,7 +64,8 @@ def format_entry(path: Path, llm: LLM, audit: AuditLog) -> bool:
         difference = first_difference(before, after)
         audit.record("format.rejected", path=path, difference=difference)
         raise FormatError(f"Mise en forme rejetée, le modèle a changé des mots ({difference}).")
-    if path.stat().st_mtime_ns != mtime:
+    # Compare contents, not mtimes: a save within the same clock tick keeps the mtime.
+    if path.read_text(encoding="utf-8") != text:
         audit.record("format.aborted", path=path)
         raise FormatError("Le fichier a changé pendant la mise en forme : rien n'a été écrit.")
 
@@ -73,6 +73,22 @@ def format_entry(path: Path, llm: LLM, audit: AuditLog) -> bool:
     path.write_text(f"{prefix}{formatted}\n", encoding="utf-8")
     audit.record("format.applied", path=path, chars_before=len(body), chars_after=len(formatted))
     return True
+
+
+def inbox_entry(inbox: Path, name: str) -> Path:
+    """A journal entry waiting in the inbox, given by its name or path.
+
+    Only entries still in the inbox may be formatted: filed sources are
+    immutable, and nothing outside the second brain is ever touched.
+    """
+    path = inbox / Path(name).name
+    try:
+        read_entry(path)
+    except (OSError, JournalError) as error:
+        raise FormatError(
+            f"{Path(name).name} n'est pas une entrée de journal de l'inbox."
+        ) from error
+    return path
 
 
 def latest_entry(inbox: Path) -> Path | None:

@@ -218,7 +218,9 @@ def test_format_command_reports_a_rejection(
     path = write_entry(second_brain, "2026-10-04-quiet-otter.md", "ça marche")
     llm = LLM("fake:1b", AuditLog(tmp_path / "log"), fake_chat({"text": "Ça fonctionne."}))
 
-    assert cli.format_command(config_file, tmp_path / "m.toml", tmp_path / "log", path, llm) == 1
+    assert (
+        cli.format_command(config_file, tmp_path / "m.toml", tmp_path / "log", path.name, llm) == 1
+    )
     assert "rejetée" in capsys.readouterr().err
 
 
@@ -229,3 +231,17 @@ def test_format_command_without_entry_or_models(
     assert "models.example.toml" in capsys.readouterr().err
     llm = LLM("fake:1b", AuditLog(tmp_path / "log"), fake_chat({"text": ""}))
     assert cli.format_command(config_file, tmp_path / "m.toml", tmp_path / "log", None, llm) == 1
+
+
+def test_format_command_refuses_files_outside_the_inbox(
+    config_file: Path, second_brain: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    filed = second_brain / "sources" / "journal" / "2026-10-04-classee.md"
+    filed.write_text("---\ntype: Journal Entry\n---\n\nTexte\n", encoding="utf-8")
+    llm = LLM("fake:1b", AuditLog(tmp_path / "log"), fake_chat({"text": "Texte."}))
+
+    for target in (str(filed), "../journal/2026-10-04-classee.md", "/etc/passwd"):
+        code = cli.format_command(config_file, tmp_path / "m.toml", tmp_path / "log", target, llm)
+        assert code == 1
+    assert "n'est pas une entrée de journal de l'inbox" in capsys.readouterr().err
+    assert filed.read_text(encoding="utf-8").endswith("Texte\n")
