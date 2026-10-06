@@ -175,6 +175,7 @@ def format_command(
     log_dir: Path,
     target: str | None = None,
     llm: LLM | None = None,
+    ask: Ask = input,
 ) -> int:
     audit = AuditLog(log_dir)
     try:
@@ -195,14 +196,45 @@ def format_command(
     except core_format.FormatError as error:
         print(error, file=sys.stderr)
         return 1
-    print(f"Mise en forme de {path.name} ({llm.model})…", flush=True)
+    print(f"Mise en forme de {path.name} ({llm.model})", flush=True)
+    start = time.monotonic()
+
+    def progress(number: int, total: int) -> None:
+        print(f"  morceau {number}/{total}… ({time.monotonic() - start:.0f} s)", flush=True)
+
+    def review(changes: list[core_format.Change]) -> bool:
+        print("  Le modèle a changé des mots :")
+        for before, after in changes[:10]:
+            print(f"    « {before} » → « {after} »")
+        if len(changes) > 10:
+            print(f"    … et {len(changes) - 10} autre(s)")
+        try:
+            answer = ask("  Accepter ce morceau quand même ? [o/N] : ")
+        except EOFError:
+            return False
+        return answer.strip().lower() == "o"
+
     try:
-        changed = core_format.format_entry(path, llm, audit)
-    except (core_format.FormatError, LLMError) as error:
+        report = core_format.format_entry(path, llm, audit, progress, review)
+    except core_format.FormatError as error:
         print(error, file=sys.stderr)
         return 1
-    print("Fait : ton éditeur recharge le fichier." if changed else "Entrée vide : rien à faire.")
+    if report is None:
+        print("Entrée vide : rien à faire.")
+        return 0
+    print(f"Fait en {time.monotonic() - start:.0f} s : {describe_report(report)}")
     return 0
+
+
+def describe_report(report: core_format.FormatReport) -> str:
+    parts = [f"{report.formatted + report.accepted}/{report.chunks} morceau(x) mis en forme"]
+    if report.kept:
+        parts.append(f"{report.kept} laissé(s) tel(s) quel(s) (mots changés refusés)")
+    if report.failed:
+        parts.append(f"{report.failed} en échec (laissé(s) tel(s) quel(s))")
+    if report.appended:
+        parts.append(f"{report.appended} caractères dictés pendant ce temps conservés")
+    return " ; ".join(parts) + "."
 
 
 def main(argv: Sequence[str] | None = None) -> int:

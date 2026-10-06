@@ -212,16 +212,27 @@ def test_format_command_formats_the_latest_entry(
     assert path.read_text(encoding="utf-8").endswith("\n\nÇa marche, je crois.\n")
 
 
-def test_format_command_reports_a_rejection(
+def test_format_command_asks_about_changed_words(
     config_file: Path, second_brain: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    path = write_entry(second_brain, "2026-10-04-quiet-otter.md", "ça marche")
-    llm = LLM("fake:1b", AuditLog(tmp_path / "log"), fake_chat({"text": "Ça fonctionne."}))
+    path = write_entry(second_brain, "2026-10-04-quiet-otter.md", "ouais ça marche")
+    llm = LLM("fake:1b", AuditLog(tmp_path / "log"), fake_chat({"text": "Oui, ça marche."}))
+    log = tmp_path / "log"
 
     assert (
-        cli.format_command(config_file, tmp_path / "m.toml", tmp_path / "log", path.name, llm) == 1
+        cli.format_command(config_file, tmp_path / "m.toml", log, path.name, llm, scripted("n"))
+        == 0
     )
-    assert "rejetée" in capsys.readouterr().err
+    out = capsys.readouterr().out
+    assert "« ouais » → « oui »" in out
+    assert "laissé(s) tel(s) quel(s)" in out
+    assert path.read_text(encoding="utf-8").endswith("\n\nouais ça marche\n")
+
+    assert (
+        cli.format_command(config_file, tmp_path / "m.toml", log, path.name, llm, scripted("o"))
+        == 0
+    )
+    assert path.read_text(encoding="utf-8").endswith("\n\nOui, ça marche.\n")
 
 
 def test_format_command_without_entry_or_models(
@@ -231,6 +242,16 @@ def test_format_command_without_entry_or_models(
     assert "models.example.toml" in capsys.readouterr().err
     llm = LLM("fake:1b", AuditLog(tmp_path / "log"), fake_chat({"text": ""}))
     assert cli.format_command(config_file, tmp_path / "m.toml", tmp_path / "log", None, llm) == 1
+
+
+def test_format_command_on_an_empty_entry(
+    config_file: Path, second_brain: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_entry(second_brain, "2026-10-04-quiet-otter.md", "")
+    llm = LLM("fake:1b", AuditLog(tmp_path / "log"), fake_chat({"text": ""}))
+
+    assert cli.format_command(config_file, tmp_path / "m.toml", tmp_path / "log", None, llm) == 0
+    assert "Entrée vide" in capsys.readouterr().out
 
 
 def test_format_command_refuses_files_outside_the_inbox(

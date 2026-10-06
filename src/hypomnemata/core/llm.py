@@ -26,8 +26,14 @@ class LLM:
         self.audit = audit
         self.chat = chat or ollama.Client().chat
 
-    def ask[T: BaseModel](self, system: str, prompt: str, schema: type[T]) -> T:
+    def ask[T: BaseModel](
+        self, system: str, prompt: str, schema: type[T], max_tokens: int | None = None
+    ) -> T:
+        """`max_tokens` caps the answer: a runaway generation ends as an invalid answer."""
         start = time.monotonic()
+        options: dict[str, int | float] = {"temperature": 0}
+        if max_tokens:
+            options["num_predict"] = max_tokens
         call = {"model": self.model, "system": system, "prompt": prompt, "schema": schema.__name__}
         try:
             response = self.chat(
@@ -38,7 +44,7 @@ class LLM:
                 ],
                 format=schema.model_json_schema(),
                 think=False,
-                options={"temperature": 0},
+                options=options,
             )
         except (ollama.ResponseError, ConnectionError) as error:
             self.audit.record("llm.failed", **call, error=str(error))
