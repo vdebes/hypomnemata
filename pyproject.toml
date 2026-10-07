@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = "AGPL-3.0-or-later"
 dependencies = [
+    "numpy>=2.0",
     "ollama>=0.6",
     "pydantic>=2.11",
     "pyyaml>=6.0",

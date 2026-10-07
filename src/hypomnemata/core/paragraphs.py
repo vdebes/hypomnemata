@@ -9,10 +9,15 @@ change, only line breaks are added.
 The user's own paragraph breaks are kept: only long blocks are split.
 """
 
-import math
 import re
+from collections.abc import Sequence
+
+import numpy as np
+from numpy.typing import NDArray
 
 from hypomnemata.core.llm import Embedder
+
+Vectors = NDArray[np.float64]
 
 TARGET_CHARS = 900  # aimed paragraph length: the number of breaks follows from it
 MIN_SENTENCES = 3  # no paragraph shorter than this (unless the block itself is)
@@ -35,18 +40,22 @@ def opens_with_connector(sentence: str) -> bool:
     return bool(first) and (first[0] in CONNECTORS or " ".join(first) in CONNECTORS)
 
 
-def _mean(vectors: list[list[float]]) -> list[float]:
-    return [sum(values) / len(vectors) for values in zip(*vectors, strict=True)]
+def _similarities(vectors: Vectors) -> Vectors:
+    """For each gap between two sentences: cosine between the meaning before and after.
+
+    "Before" and "after" are the mean vectors of the WINDOW sentences on each side.
+    """
+    gaps = range(1, len(vectors))
+    before = np.array([vectors[max(0, gap - WINDOW) : gap].mean(axis=0) for gap in gaps])
+    after = np.array([vectors[gap : gap + WINDOW].mean(axis=0) for gap in gaps])
+    norms = np.linalg.norm(before, axis=1) * np.linalg.norm(after, axis=1)
+    cosines: Vectors = np.sum(before * after, axis=1) / norms
+    return cosines
 
 
-def _cosine(a: list[float], b: list[float]) -> float:
-    norm = math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b))
-    return sum(x * y for x, y in zip(a, b, strict=True)) / norm if norm else 0.0
-
-
-def _depths(similarities: list[float]) -> list[float]:
+def _depths(similarities: Vectors) -> Vectors:
     """How deep each similarity sits between the peaks around it (TextTiling)."""
-    depths = []
+    depths = np.zeros_like(similarities)
     for i, value in enumerate(similarities):
         left = i
         while left > 0 and similarities[left - 1] >= similarities[left]:
@@ -54,24 +63,22 @@ def _depths(similarities: list[float]) -> list[float]:
         right = i
         while right < len(similarities) - 1 and similarities[right + 1] >= similarities[right]:
             right += 1
-        depths.append(similarities[left] - value + similarities[right] - value)
+        depths[i] = similarities[left] - value + similarities[right] - value
     return depths
 
 
-def breaks(parts: list[str], vectors: list[list[float]], target: int = TARGET_CHARS) -> list[int]:
+def breaks(
+    parts: list[str], vectors: Sequence[Sequence[float]], target: int = TARGET_CHARS
+) -> list[int]:
     """Indices of the sentences that open a new paragraph, in order."""
     count = len(parts)
-    similarities = [
-        _cosine(_mean(vectors[max(0, gap - WINDOW) : gap]), _mean(vectors[gap : gap + WINDOW]))
-        for gap in range(1, count)
-    ]
-    depths = _depths(similarities)
+    depths = _depths(_similarities(np.asarray(vectors, dtype=float)))
     wanted = round(sum(map(len, parts)) / target) - 1
     chosen: list[int] = []
-    for gap in sorted(range(len(depths)), key=lambda i: depths[i], reverse=True):
+    for gap in np.argsort(-depths):  # deepest valley first
         if len(chosen) >= wanted:
             break
-        start = gap + 1  # the gap just before sentence `start`
+        start = int(gap) + 1  # the gap just before sentence `start`
         fits = MIN_SENTENCES <= start <= count - MIN_SENTENCES
         if fits and not opens_with_connector(parts[start]):
             if all(abs(start - other) >= MIN_SENTENCES for other in chosen):
