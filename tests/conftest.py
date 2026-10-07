@@ -9,7 +9,7 @@ import pytest
 
 from hypomnemata.core.audit import AuditLog
 from hypomnemata.core.config import Config
-from hypomnemata.core.llm import LLM
+from hypomnemata.core.llm import LLM, Embedder
 
 
 @pytest.fixture(autouse=True)
@@ -77,3 +77,16 @@ def fake_chat(answer: dict[str, Any] | str, calls: list[dict[str, Any]] | None =
 def llm(audit: AuditLog) -> LLM:
     proposal = {"title": "Un premier essai réussi", "tags": ["personnel", "hypomnemata"]}
     return LLM("fake:1b", audit, fake_chat(proposal))
+
+
+def topic_embedder(audit: AuditLog, calls: list[list[str]] | None = None) -> Embedder:
+    """A stand-in embedding model: sentences about "travail" point one way, the rest another."""
+
+    def embed(**kwargs: Any) -> ollama.EmbedResponse:
+        texts = kwargs["input"]
+        if calls is not None:
+            calls.append(texts)
+        vectors = [[1.0, 0.1] if "travail" in text else [0.1, 1.0] for text in texts]
+        return ollama.EmbedResponse(embeddings=vectors)
+
+    return Embedder("fake-embed", audit, embed)

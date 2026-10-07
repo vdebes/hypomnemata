@@ -19,7 +19,7 @@ from hypomnemata.core import triage as core_triage
 from hypomnemata.core.audit import AuditLog
 from hypomnemata.core.config import Config, ConfigError, load_config, load_models
 from hypomnemata.core.journal import Entry, JournalError, body_length, create_entry
-from hypomnemata.core.llm import LLM, LLMError
+from hypomnemata.core.llm import LLM, Embedder, LLMError
 
 # src/hypomnemata/cli.py -> repository root. Config and logs live there for now.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -176,15 +176,21 @@ def format_command(
     target: str | None = None,
     llm: LLM | None = None,
     ask: Ask = input,
+    embedder: Embedder | None = None,
 ) -> int:
     audit = AuditLog(log_dir)
     try:
         config = load_config(config_path)
         if llm is None:
-            llm = LLM(load_models(models_path).resolve("small"), audit)
+            models = load_models(models_path)
+            llm = LLM(models.resolve("small"), audit)
+            if models.embedding:
+                embedder = Embedder(models.embedding, audit)
     except ConfigError as error:
         print(error, file=sys.stderr)
         return 1
+    if embedder is None:
+        print("Pas de modèle d'embeddings (models.local.toml) : ponctuation seule.")
     try:
         if target:
             path = core_format.inbox_entry(config.inbox, target)
@@ -199,8 +205,8 @@ def format_command(
     print(f"Mise en forme de {path.name} ({llm.model})", flush=True)
     start = time.monotonic()
 
-    def progress(number: int, total: int) -> None:
-        print(f"  morceau {number}/{total}… ({time.monotonic() - start:.0f} s)", flush=True)
+    def progress(step: str) -> None:
+        print(f"  {step}… ({time.monotonic() - start:.0f} s)", flush=True)
 
     def review(changes: list[core_format.Change]) -> bool:
         print("  Le modèle a changé des mots :")
@@ -215,7 +221,7 @@ def format_command(
         return answer.strip().lower() == "o"
 
     try:
-        report = core_format.format_entry(path, llm, audit, progress, review)
+        report = core_format.format_entry(path, llm, audit, progress, review, embedder)
     except core_format.FormatError as error:
         print(error, file=sys.stderr)
         return 1
@@ -227,11 +233,13 @@ def format_command(
 
 
 def describe_report(report: core_format.FormatReport) -> str:
-    parts = [f"{report.formatted + report.accepted}/{report.chunks} morceau(x) mis en forme"]
+    parts = [f"{report.formatted + report.accepted}/{report.chunks} morceau(x) ponctué(s)"]
     if report.kept:
         parts.append(f"{report.kept} laissé(s) tel(s) quel(s) (mots changés refusés)")
     if report.failed:
         parts.append(f"{report.failed} en échec (laissé(s) tel(s) quel(s))")
+    if report.paragraphs:
+        parts.append(f"{report.paragraphs} saut(s) de paragraphe ajouté(s)")
     if report.appended:
         parts.append(f"{report.appended} caractères dictés pendant ce temps conservés")
     return " ; ".join(parts) + "."

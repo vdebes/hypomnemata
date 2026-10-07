@@ -1,12 +1,17 @@
 """The /format command: punctuate and paragraph a dictated entry.
 
-Dictation gives long blocks with missing punctuation. A small model adds
-punctuation, capitals and paragraph breaks, one chunk of about 1500
-characters at a time (small calls stay fast and far from the context
-limit). For each chunk the code checks that the words are exactly the
-same, in the same order. If the model changed words, the user is shown
-the changes and decides; by default the chunk is kept as dictated: the
-model may format, never rewrite what was said without the user agreeing.
+Two steps, because they need different tools:
+
+1. Punctuation and capitals, by a small writing model, one chunk of about
+   1500 characters at a time (small calls stay fast and far from the
+   context limit). For each chunk the code checks that the words are
+   exactly the same, in the same order. If the model changed words, the
+   user is shown the changes and decides; by default the chunk is kept as
+   dictated: the model may format, never rewrite what was said without the
+   user agreeing.
+2. Paragraph breaks, found by meaning with an embedding model over the
+   whole text (see paragraphs.py): a small writing model cannot tell where
+   an idea ends, chunk by chunk or not.
 """
 
 import difflib
@@ -19,15 +24,17 @@ from pydantic import BaseModel
 
 from hypomnemata.core.audit import AuditLog
 from hypomnemata.core.journal import JournalError, read_entry, split
-from hypomnemata.core.llm import LLM, LLMError
+from hypomnemata.core.llm import LLM, Embedder, LLMError
+from hypomnemata.core.paragraphs import split_paragraphs
 
 SYSTEM = """\
 Tu mets en forme un texte dicté en français, transcrit par reconnaissance vocale.
 
 Tu ajoutes ou corriges uniquement :
 - la ponctuation (points, virgules, points d'interrogation pour les questions) ;
-- les majuscules en début de phrase ;
-- les sauts de paragraphe (ligne vide) quand l'idée change.
+- les majuscules en début de phrase.
+
+N'ajoute aucun saut de ligne : les paragraphes sont faits ailleurs.
 
 Interdit : ajouter, supprimer, remplacer ou déplacer un seul mot, même pour \
 corriger une faute ou une erreur de transcription. Garde exactement les mêmes \
@@ -39,7 +46,7 @@ CHUNK_CHARS = 1500
 MAX_TOKENS = 2048  # a 1500-character chunk needs about 500; more means a runaway answer
 
 Change = tuple[str, str]  # (words before, words after)
-Progress = Callable[[int, int], None]  # (chunk number, total), before each chunk
+Progress = Callable[[str], None]  # what is being done, before each step
 Review = Callable[[list[Change]], bool]  # the model changed words: accept the chunk?
 
 
@@ -65,6 +72,7 @@ class FormatReport:
     kept: int = 0  # words changed, refused: kept as dictated
     failed: int = 0  # no valid answer from the model: kept as dictated
     appended: int = 0  # characters dictated meanwhile, kept after the formatted text
+    paragraphs: int = 0  # paragraph breaks added by meaning (0: no embedding model)
 
 
 def words(text: str) -> list[str]:
@@ -138,12 +146,28 @@ def _format_chunk(
     return (formatted, "accepted") if accepted else (text, "kept")
 
 
+def _add_paragraphs(
+    text: str, embedder: Embedder, audit: AuditLog, path: Path, report: FormatReport
+) -> str:
+    try:
+        result = split_paragraphs(text, embedder)
+    except LLMError as error:
+        audit.record("format.paragraphs_failed", path=path, error=str(error))
+        return text
+    if words(result) != words(text):  # cannot happen: only whitespace changes
+        audit.record("format.paragraphs_rejected", path=path)
+        return text
+    report.paragraphs = max(0, result.count("\n\n") - text.count("\n\n"))
+    return result
+
+
 def format_entry(
     path: Path,
     llm: LLM,
     audit: AuditLog,
     progress: Progress | None = None,
     review: Review | None = None,
+    embedder: Embedder | None = None,
 ) -> FormatReport | None:
     """Format the body of `path` in place, chunk by chunk. None when there is nothing to do."""
     text = path.read_text(encoding="utf-8")
@@ -156,11 +180,15 @@ def format_entry(
     output = ""
     for number, chunk in enumerate(pieces, start=1):
         if progress:
-            progress(number, len(pieces))
+            progress(f"ponctuation, morceau {number}/{len(pieces)}")
         result, status = _format_chunk(chunk.text, number, llm, audit, path, review)
         setattr(report, status, getattr(report, status) + 1)
         output += (chunk.glue if output else "") + result
-    if not report.formatted and not report.accepted:
+    if embedder:
+        if progress:
+            progress(f"paragraphes ({embedder.model})")
+        output = _add_paragraphs(output, embedder, audit, path, report)
+    if not report.formatted and not report.accepted and not report.paragraphs:
         audit.record("format.unchanged", path=path, report=report.__dict__)
         return report
 

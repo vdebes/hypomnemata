@@ -49,7 +49,7 @@ predictable, testable, and the same every time.
 ## Try it
 
 Requires [uv](https://docs.astral.sh/uv/), and [Ollama](https://ollama.com)
-for title and tag proposals. Your second brain must be a Git repository.
+for title and tag proposals and formatting. Your second brain must be a Git repository.
 
 ```sh
 cp config.example.toml config.local.toml   # then set your paths
@@ -64,11 +64,14 @@ uv run hypomnemata triage                  # file it
 (`2026-10-03-curious-otter.md`) in `sources/inbox/` of your second brain,
 and opens it in your editor with the cursor ready below the heading.
 
-`format` punctuates and paragraphs the latest entry (save it first), chunk
-by chunk, showing its progress. A small model proposes the formatting; the
+`format` punctuates and paragraphs the latest entry (save it first),
+showing its progress. A small model adds punctuation chunk by chunk; the
 code checks that every word is unchanged, in the same order. If the model
 changed words, you see which ones and decide; by default the chunk stays
-as you wrote it.
+as you wrote it. Paragraph breaks come from an embedding model, which
+writes nothing: it measures the meaning of each sentence, and the code
+cuts long blocks where the meaning shifts most. Your own paragraph breaks
+are kept.
 
 `triage` walks through the journal entries in the inbox. For each one, a
 small local model proposes a title and tags; you accept them with Enter

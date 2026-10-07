@@ -6,7 +6,7 @@ from typing import Any
 
 import ollama
 import pytest
-from conftest import fake_chat
+from conftest import fake_chat, topic_embedder
 
 from hypomnemata.core.audit import AuditLog
 from hypomnemata.core.format import (
@@ -18,7 +18,7 @@ from hypomnemata.core.format import (
     latest_entry,
     words,
 )
-from hypomnemata.core.llm import LLM
+from hypomnemata.core.llm import LLM, Embedder
 
 HEADER = (
     "---\ntype: Journal Entry\ntags: [journal]\n"
@@ -107,14 +107,12 @@ def test_formats_chunk_by_chunk_with_progress(tmp_path: Path, audit: AuditLog) -
     body = "\n\n".join(f"paragraphe {n} " + "mot " * 200 for n in range(4))
     path = entry(tmp_path, body)
     calls: list[str] = []
-    seen: list[tuple[int, int]] = []
+    seen: list[str] = []
 
-    report = format_entry(
-        path, rewriting(audit, str.upper, calls), audit, progress=lambda n, t: seen.append((n, t))
-    )
+    report = format_entry(path, rewriting(audit, str.upper, calls), audit, progress=seen.append)
 
     assert report is not None and report.chunks == len(calls) > 1
-    assert seen == [(n, len(calls)) for n in range(1, len(calls) + 1)]
+    assert seen == [f"ponctuation, morceau {n}/{len(calls)}" for n in range(1, len(calls) + 1)]
     assert "PARAGRAPHE 3" in path.read_text(encoding="utf-8")
 
 
@@ -224,3 +222,36 @@ def test_latest_entry_ignores_other_notes(tmp_path: Path) -> None:
     os.utime(old, ns=(1, 1))
 
     assert latest_entry(tmp_path) == new
+
+
+def test_adds_paragraph_breaks_by_meaning(tmp_path: Path, audit: AuditLog) -> None:
+    work = " ".join(f"Le travail avance mal, c'est le point {n} de ma journée." for n in range(15))
+    life = " ".join(f"Le soir je lis un bon roman, c'est la page {n} du livre." for n in range(15))
+    path = entry(tmp_path, f"{work} {life}")
+    seen: list[str] = []
+
+    report = format_entry(
+        path,
+        rewriting(audit, lambda chunk: chunk, []),
+        audit,
+        progress=seen.append,
+        embedder=topic_embedder(audit),
+    )
+
+    assert report is not None and report.paragraphs == 1
+    assert seen[-1] == "paragraphes (fake-embed)"
+    body = path.read_text(encoding="utf-8").split("# Quiet Otter\n\n")[1]
+    assert body == f"{work}\n\n{life}\n"
+
+
+def test_embedding_failure_keeps_the_punctuation(tmp_path: Path, audit: AuditLog) -> None:
+    def down(**kwargs: Any) -> ollama.EmbedResponse:
+        raise ConnectionError("refused")
+
+    path = entry(tmp_path, "Le travail avance mal. " * 80)
+    report = format_entry(
+        path, rewriting(audit, str.upper, []), audit, embedder=Embedder("e", audit, down)
+    )
+
+    assert report is not None and report.paragraphs == 0 and report.formatted > 0
+    assert any(e["event"] == "format.paragraphs_failed" for e in events(audit))

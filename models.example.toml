@@ -8,3 +8,7 @@
 small = "qwen3:4b"
 # medium = "qwen3:14b"
 # large = "qwen3:32b"
+
+# Embedding model (measures the meaning of sentences, writes nothing):
+# used by `format` to find paragraph breaks. Multilingual, ~0.7 GB on GPU.
+embedding = "bge-m3"

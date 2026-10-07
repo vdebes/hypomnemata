@@ -7,7 +7,7 @@ from conftest import fake_chat
 from pydantic import BaseModel
 
 from hypomnemata.core.audit import AuditLog
-from hypomnemata.core.llm import LLM, LLMError
+from hypomnemata.core.llm import LLM, Embedder, LLMError
 
 
 class Answer(BaseModel):
@@ -48,3 +48,24 @@ def test_unreachable_ollama(audit: AuditLog) -> None:
     with pytest.raises(LLMError, match="Ollama"):
         LLM("fake:1b", audit, down).ask("system", "prompt", Answer)
     assert events(audit)[0]["event"] == "llm.failed"
+
+
+def test_embedder_returns_one_vector_per_text(audit: AuditLog) -> None:
+    def embed(**kwargs: Any) -> ollama.EmbedResponse:
+        return ollama.EmbedResponse(embeddings=[[1.0, 2.0] for _ in kwargs["input"]])
+
+    assert Embedder("e", audit, embed).embed(["a", "b"]) == [[1.0, 2.0], [1.0, 2.0]]
+    assert events(audit)[-1]["event"] == "embed.computed"
+
+
+def test_embedder_failures(audit: AuditLog) -> None:
+    def down(**kwargs: Any) -> ollama.EmbedResponse:
+        raise ConnectionError("refused")
+
+    def short(**kwargs: Any) -> ollama.EmbedResponse:
+        return ollama.EmbedResponse(embeddings=[[1.0]])
+
+    with pytest.raises(LLMError, match="Ollama"):
+        Embedder("e", audit, down).embed(["a"])
+    with pytest.raises(LLMError, match="1 vecteurs pour 2 textes"):
+        Embedder("e", audit, short).embed(["a", "b"])

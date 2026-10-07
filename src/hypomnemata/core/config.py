@@ -37,6 +37,8 @@ class Models(BaseModel):
     small: str | None = None
     medium: str | None = None
     large: str | None = None
+    # Not a class: embedding models don't write, they only measure meaning.
+    embedding: str | None = None
 
     def resolve(self, minimum: ModelClass) -> str:
         """The smallest configured model of at least the `minimum` class."""
